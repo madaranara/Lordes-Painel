@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { ArrowRight, Check, CheckCircle2, Layers, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, CloudCog, Code2, Globe2, Layers, ShieldCheck } from 'lucide-react';
 import { MarketingOrigin, SegmentKey } from '../types/finance';
+import { SEGMENT_OPTIONS } from '../data/segments';
 import { parseBRLInputToCents } from '../utils/formatters';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -410,7 +411,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           <article className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
             <div className="aspect-[4/3] bg-slate-100 overflow-hidden">
               <img
@@ -498,6 +499,66 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="mt-6 w-full py-2.5 px-4 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
             >
               Abrir Demo de Alimentação
+            </button>
+          </article>
+
+          <article className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between p-6">
+            <div>
+              <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 mb-4">
+                <Globe2 className="w-5 h-5" />
+              </div>
+              <p className="text-xs text-slate-500">Sites &amp; Presença Digital · Projetos recorrentes</p>
+              <h3 className="font-display text-lg font-bold text-slate-900 mt-1">Studio Web LORDES</h3>
+              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+                Organize landing pages, sites institucionais, manutenção, hospedagem e domínios com margem por projeto.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenDashboard('sites', 'dashboard')}
+              className="mt-6 w-full py-2.5 px-4 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+            >
+              Abrir Demo de Sites
+            </button>
+          </article>
+
+          <article className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between p-6">
+            <div>
+              <div className="w-10 h-10 rounded-lg bg-violet-50 border border-violet-200 flex items-center justify-center text-violet-700 mb-4">
+                <CloudCog className="w-5 h-5" />
+              </div>
+              <p className="text-xs text-slate-500">SaaS &amp; Assinaturas · Receita previsível</p>
+              <h3 className="font-display text-lg font-bold text-slate-900 mt-1">LORDES Cloud</h3>
+              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+                Acompanhe MRR, implantação, add-ons, suporte, cloud e aquisição para entender o crescimento da sua base.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenDashboard('saas', 'dashboard')}
+              className="mt-6 w-full py-2.5 px-4 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+            >
+              Abrir Demo de SaaS
+            </button>
+          </article>
+
+          <article className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between p-6">
+            <div>
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 mb-4">
+                <Code2 className="w-5 h-5" />
+              </div>
+              <p className="text-xs text-slate-500">Software &amp; Tecnologia · Projetos e licenças</p>
+              <h3 className="font-display text-lg font-bold text-slate-900 mt-1">Fábrica de Software Norte</h3>
+              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+                Separe licenças, integrações, suporte, desenvolvimento terceirizado, cloud e margem por contrato.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenDashboard('software', 'dashboard')}
+              className="mt-6 w-full py-2.5 px-4 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+            >
+              Abrir Demo de Software
             </button>
           </article>
         </div>
@@ -683,10 +744,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         onChange={(e) => setSegmentoForm(e.target.value)}
                         className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-[#1E40AF]"
                       >
-                        <option>Prestação de Serviços</option>
-                        <option>Comércio Local</option>
-                        <option>Alimentação &amp; Delivery</option>
-                        <option>Clínica / Consultório</option>
+                        {SEGMENT_OPTIONS.map((option) => (
+                          <option key={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </div>
                     <div>
