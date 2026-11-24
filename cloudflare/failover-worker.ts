@@ -1,4 +1,5 @@
 export interface Env {
+  STATIC_ORIGIN: string;
   PRIMARY_ORIGIN: string;
   SECONDARY_ORIGIN: string;
 }
@@ -31,6 +32,11 @@ async function forward(request: Request, origin: string, timeoutMs: number): Pro
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const pathname = new URL(request.url).pathname;
+    if (!pathname.startsWith('/api/')) {
+      return fetch(new Request(upstreamUrl(env.STATIC_ORIGIN, new URL(request.url)), request));
+    }
+
     try {
       const primary = await forward(request.clone(), env.PRIMARY_ORIGIN, 8_000);
       if (primary.status < 500) return primary;
