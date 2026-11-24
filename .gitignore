@@ -9,3 +9,4 @@ firebase-private-key.der.b64
 *.log
 .env*
 !.env.example
+.firebase/
