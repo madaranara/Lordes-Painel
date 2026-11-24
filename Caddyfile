@@ -1,0 +1,3 @@
+{$LORDES_HOST} {
+	reverse_proxy painel:3000
+}

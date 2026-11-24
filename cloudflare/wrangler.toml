@@ -1,0 +1,7 @@
+name = "lordes-painel-failover"
+main = "failover-worker.ts"
+compatibility_date = "2026-11-24"
+
+[vars]
+PRIMARY_ORIGIN = "https://lordes-painel.bonto.page"
+SECONDARY_ORIGIN = "https://lordes-painel-standby.onrender.com"

@@ -2,6 +2,9 @@ node_modules/
 build/
 dist/
 coverage/
+.data/
+firebase-service-account.json
+firebase-private-key.der.b64
 .DS_Store
 *.log
 .env*

@@ -5,7 +5,6 @@ import { pathToFileURL } from 'node:url';
 import dotenv from 'dotenv';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import QRCode from 'qrcode';
-import { createServer as createViteServer } from 'vite';
 import {
   createCleanTenantDataset,
   createInitialSaasClients,
@@ -23,6 +22,7 @@ import type {
 import { formatBRL, getTodayISO } from './src/utils/formatters.ts';
 import { applyOverdueTransitions, generateDueRecurrences } from './src/utils/kpiEngine.ts';
 import { getPlanEntitlements } from './src/utils/planLimits.ts';
+import { FirebaseRestStore, readFirebaseConfig } from './server/firebaseRest.ts';
 
 dotenv.config();
 
@@ -340,31 +340,53 @@ function runTenantMaintenance(dataset: TenantDataset, todayISO = getTodayISO()):
 export async function createLordesApp(options?: {
   dbPath?: string;
   mountVite?: boolean;
+  behindReverseProxy?: boolean;
 }): Promise<Express> {
   const { dataDir, dbPath } = resolveSafeDbPath(options?.dbPath);
 
+  const firebaseConfig = readFirebaseConfig();
+  const firebaseStore = firebaseConfig ? new FirebaseRestStore(firebaseConfig) : null;
+  let firebaseWriteQueue = Promise.resolve();
+  let databaseState: DatabaseSchema | undefined;
+
+  function writeLocalDb(db: DatabaseSchema): void {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const tmpPath = path.resolve(dataDir, `${path.basename(dbPath)}.${process.pid}.${Date.now()}.tmp`);
+    if (!tmpPath.startsWith(dataDir + path.sep)) {
+      throw new Error('Invalid temp database path');
+    }
+    fs.writeFileSync(tmpPath, JSON.stringify(db, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmpPath, dbPath);
+  }
+
   function ensureDb(): DatabaseSchema {
+    if (databaseState) return databaseState;
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
     if (fs.existsSync(dbPath)) {
+      const raw = fs.readFileSync(dbPath, 'utf8');
+      let parsed: Partial<DatabaseSchema> | null;
       try {
-        const raw = fs.readFileSync(dbPath, 'utf8');
-        const parsed = JSON.parse(raw) as Partial<DatabaseSchema>;
-        if (parsed && parsed.tenants && parsed.users) {
-          return {
-            users: parsed.users.map((u) => ({
-              ...u,
-              memberships: getUserMemberships(u),
-            })),
-            tenants: parsed.tenants,
-            saasClients: parsed.saasClients || createInitialSaasClients(),
-            publicLeads: parsed.publicLeads || [],
-          };
-        }
+        parsed = JSON.parse(raw);
       } catch {
-        // recreate clean db on parse failure
+        throw new Error('Banco de dados LORDES ilegível');
       }
+      if (!parsed?.tenants || typeof parsed.tenants !== 'object' || Array.isArray(parsed.tenants) || !Array.isArray(parsed.users)) {
+        throw new Error('Banco de dados LORDES inválido');
+      }
+      databaseState = {
+        users: parsed.users.map((u) => ({
+          ...u,
+          memberships: getUserMemberships(u),
+        })),
+        tenants: parsed.tenants,
+        saasClients: parsed.saasClients || createInitialSaasClients(),
+        publicLeads: parsed.publicLeads || [],
+      };
+      return databaseState;
     }
 
     const initial: DatabaseSchema = {
@@ -377,21 +399,51 @@ export async function createLordesApp(options?: {
       saasClients: createInitialSaasClients(),
       publicLeads: [],
     };
-    fs.writeFileSync(dbPath, JSON.stringify(initial, null, 2), 'utf8');
+    writeLocalDb(initial);
+    databaseState = initial;
     return initial;
   }
 
   function saveDb(db: DatabaseSchema): void {
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    databaseState = db;
+    writeLocalDb(db);
+    if (firebaseStore) {
+      const snapshot = JSON.parse(JSON.stringify(db)) as DatabaseSchema;
+      firebaseWriteQueue = firebaseWriteQueue
+        .then(() => firebaseStore.save(snapshot))
+        .catch((error) => console.error('[firebase] sincronização falhou:', error));
     }
-    const tmpPath = path.resolve(dataDir, `${path.basename(dbPath)}.${process.pid}.${Date.now()}.tmp`);
-    if (!tmpPath.startsWith(dataDir + path.sep)) {
-      throw new Error('Invalid temp database path');
-    }
-    fs.writeFileSync(tmpPath, JSON.stringify(db, null, 2), 'utf8');
-    fs.renameSync(tmpPath, dbPath);
   }
+
+  async function hydrateFromFirebase(): Promise<void> {
+    const local = ensureDb();
+    if (!firebaseStore) return;
+    try {
+      const remote = await firebaseStore.load();
+      if (!remote) {
+        firebaseWriteQueue = firebaseWriteQueue
+          .then(() => firebaseStore.save(local))
+          .catch((error) => console.error('[firebase] sincronização inicial falhou:', error));
+        console.info('[firebase] Firestore configurado; banco local será enviado na primeira inicialização');
+        return;
+      }
+      databaseState = {
+        users: Object.values(remote.users).map((u) => ({
+          ...u,
+          memberships: getUserMemberships(u as StoredUser),
+        })) as StoredUser[],
+        tenants: remote.tenants as Record<string, TenantDataset>,
+        saasClients: remote.state?.saasClients || local.saasClients,
+        publicLeads: remote.state?.publicLeads || local.publicLeads,
+      };
+      writeLocalDb(databaseState);
+      console.info('[firebase] dados carregados do Firestore');
+    } catch (error) {
+      console.error('[firebase] leitura falhou; mantendo banco local:', error);
+    }
+  }
+
+  await hydrateFromFirebase();
 
   // Varredura automática de recorrências e atrasos a cada 30 min (.unref() para não prender encerramento)
   const maintenanceTimer = setInterval(() => {
@@ -477,10 +529,16 @@ export async function createLordesApp(options?: {
   }
 
   const app = express();
+  if (options?.behindReverseProxy) app.set('trust proxy', 1);
   app.use(express.json({ limit: '4mb' }));
 
   app.get('/api/v1/health', (_req, res) => {
-    res.json({ ok: true, service: 'lordes-api', version: 'v1' });
+    res.json({
+      ok: true,
+      service: 'lordes-api',
+      version: 'v1',
+      persistence: firebaseStore ? 'firestore-rest' : 'local-json',
+    });
   });
 
   // Cadastro multi-tenant isolado
@@ -1392,6 +1450,7 @@ export async function createLordesApp(options?: {
 
   if (options?.mountVite) {
     if (process.env.NODE_ENV !== 'production') {
+      const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',
@@ -1417,6 +1476,7 @@ if (isEntrypoint) {
   createLordesApp({
     dbPath: process.env.LORDES_DB_PATH || undefined,
     mountVite: true,
+    behindReverseProxy: process.env.LORDES_BEHIND_REVERSE_PROXY === 'true',
   })
     .then((app) => {
       app.listen(PORT, '0.0.0.0', () => {

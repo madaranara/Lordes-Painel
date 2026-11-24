@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: lordes-painel-standby
+    runtime: node
+    plan: free
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LORDES_DB_PATH
+        value: /tmp/lordes-db.json
+      - key: LORDES_BEHIND_REVERSE_PROXY
+        value: "true"
+      - key: FIREBASE_PROJECT_ID
+        value: lordes-painel
+      - key: SESSION_SECRET
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY_BASE64
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
