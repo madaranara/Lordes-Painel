@@ -1,4 +1,10 @@
-export type SegmentKey = 'servicos' | 'comercio' | 'alimentacao';
+export type SegmentKey =
+  | 'servicos'
+  | 'comercio'
+  | 'alimentacao'
+  | 'sites'
+  | 'saas'
+  | 'software';
 
 export type AccessRole = 'proprietario' | 'financeiro' | 'leitura';
 

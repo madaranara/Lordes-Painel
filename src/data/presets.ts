@@ -85,9 +85,126 @@ export function createInitialSaasClients(): SaasClientRecord[] {
   ];
 }
 
+function createDigitalPreset(segment: 'sites' | 'saas' | 'software'): TenantDataset {
+  const today = getTodayISO();
+  const currentMonth = getMonthKey(today);
+  const empId = `emp-${segment}`;
+  const profiles = {
+    sites: {
+      nomeFantasia: 'LORDES Sites & Landing Pages',
+      corPrimaria: '#7C3AED',
+      produtoNome: 'Gestor LORDES Sites',
+      headline: 'Sites, landing pages e recorrências organizados em um só painel',
+      categorias: [
+        { nome: 'Projetos de Site', tipo: 'receita', natureza: 'variavel', grupoDre: 'receita_bruta' },
+        { nome: 'Manutenção e Hospedagem', tipo: 'receita', natureza: 'fixa', grupoDre: 'receita_bruta' },
+        { nome: 'Domínios e Ferramentas', tipo: 'despesa', natureza: 'fixa', grupoDre: 'despesa_fixa' },
+        { nome: 'Freelancers e Produção', tipo: 'despesa', natureza: 'variavel', grupoDre: 'custo_variavel' },
+        { nome: 'Marketing e Aquisição', tipo: 'despesa', natureza: 'variavel', grupoDre: 'marketing' },
+      ],
+      centros: ['Projetos', 'Recorrências', 'Comercial'],
+      produtos: [
+        { nome: 'Site Institucional', tipo: 'servico', precoVendaCents: 350000, custoUnitarioCents: 90000 },
+        { nome: 'Landing Page de Campanha', tipo: 'servico', precoVendaCents: 120000, custoUnitarioCents: 30000 },
+        { nome: 'Manutenção Mensal', tipo: 'servico', precoVendaCents: 4900, custoUnitarioCents: 1200 },
+      ],
+    },
+    saas: {
+      nomeFantasia: 'LORDES SaaS',
+      corPrimaria: '#0F766E',
+      produtoNome: 'Gestor LORDES SaaS',
+      headline: 'Assinaturas, churn e custos de infraestrutura sob controle',
+      categorias: [
+        { nome: 'Assinaturas Mensais', tipo: 'receita', natureza: 'fixa', grupoDre: 'receita_bruta' },
+        { nome: 'Setup e Implantação', tipo: 'receita', natureza: 'variavel', grupoDre: 'receita_bruta' },
+        { nome: 'Upsell e Add-ons', tipo: 'receita', natureza: 'variavel', grupoDre: 'receita_bruta' },
+        { nome: 'Cloud e Infraestrutura', tipo: 'despesa', natureza: 'variavel', grupoDre: 'custo_variavel' },
+        { nome: 'Suporte e Customer Success', tipo: 'despesa', natureza: 'variavel', grupoDre: 'custo_variavel' },
+        { nome: 'Marketing e Vendas', tipo: 'despesa', natureza: 'variavel', grupoDre: 'marketing' },
+      ],
+      centros: ['Produto', 'Customer Success', 'Vendas'],
+      produtos: [
+        { nome: 'Plano SaaS Mensal', tipo: 'servico', precoVendaCents: 12900, custoUnitarioCents: 2600 },
+        { nome: 'Implantação SaaS', tipo: 'servico', precoVendaCents: 89000, custoUnitarioCents: 25000 },
+        { nome: 'Add-on Premium', tipo: 'servico', precoVendaCents: 4900, custoUnitarioCents: 700 },
+      ],
+    },
+    software: {
+      nomeFantasia: 'LORDES Software',
+      corPrimaria: '#1D4ED8',
+      produtoNome: 'Gestor LORDES Software',
+      headline: 'Licenças, projetos sob medida e suporte técnico com margem clara',
+      categorias: [
+        { nome: 'Licenças de Software', tipo: 'receita', natureza: 'fixa', grupoDre: 'receita_bruta' },
+        { nome: 'Projetos Customizados', tipo: 'receita', natureza: 'variavel', grupoDre: 'receita_bruta' },
+        { nome: 'Suporte e Atualizações', tipo: 'receita', natureza: 'fixa', grupoDre: 'receita_bruta' },
+        { nome: 'Desenvolvimento e Terceiros', tipo: 'despesa', natureza: 'variavel', grupoDre: 'custo_variavel' },
+        { nome: 'Cloud e DevOps', tipo: 'despesa', natureza: 'variavel', grupoDre: 'custo_variavel' },
+        { nome: 'Marketing e Comercial', tipo: 'despesa', natureza: 'variavel', grupoDre: 'marketing' },
+      ],
+      centros: ['Produto', 'Projetos', 'Suporte'],
+      produtos: [
+        { nome: 'Licença de Software', tipo: 'produto', precoVendaCents: 29900, custoUnitarioCents: 4000 },
+        { nome: 'Projeto de Integração', tipo: 'servico', precoVendaCents: 240000, custoUnitarioCents: 85000 },
+        { nome: 'Suporte Técnico Mensal', tipo: 'servico', precoVendaCents: 19900, custoUnitarioCents: 3500 },
+      ],
+    },
+  } as const;
+  const profile = profiles[segment];
+
+  return {
+    empresa: {
+      id: empId,
+      nomeFantasia: profile.nomeFantasia,
+      razaoSocial: `${profile.nomeFantasia} Tecnologia Ltda`,
+      documento: 'Não informado',
+      segmento: segment,
+      regimeTributario: 'Simples Nacional',
+      plano: 'Profissional',
+      corPrimaria: profile.corPrimaria,
+      subdominio: `app.${segment}.lordes.com.br`,
+      produtoNome: profile.produtoNome,
+      siteSlug: `demo-${segment}`,
+      siteWebhookKey: `demo-key-${segment}`,
+      siteHeadline: profile.headline,
+      siteWhatsapp: '',
+      aceiteLgpdEm: today,
+    },
+    contas: [
+      { id: `c-${segment}`, empresaId: empId, nome: 'Conta Principal PJ', tipo: 'banco', saldoInicialCents: 0, ativa: true },
+    ],
+    categorias: profile.categorias.map((categoria, index) => ({
+      ...categoria,
+      id: `cat-${segment}-${index + 1}`,
+      empresaId: empId,
+    })),
+    centrosCusto: profile.centros.map((nome, index) => ({
+      id: `cc-${segment}-${index + 1}`,
+      empresaId: empId,
+      nome,
+      ativo: true,
+    })),
+    produtos: profile.produtos.map((produto, index) => ({
+      ...produto,
+      id: `pr-${segment}-${index + 1}`,
+      empresaId: empId,
+      ativo: true,
+    })),
+    pessoas: [],
+    lancamentos: [],
+    meta: { mesReferencia: currentMonth, faturamentoCents: 0, lucroCents: 0, limiteDespesaCents: 0 },
+    leads: [],
+    auditoria: [],
+  };
+}
+
 export function createSegmentPreset(segment: SegmentKey): TenantDataset {
   const today = getTodayISO();
   const currentMonth = getMonthKey(today);
+
+  if (segment === 'sites' || segment === 'saas' || segment === 'software') {
+    return createDigitalPreset(segment);
+  }
 
   if (segment === 'servicos') {
     const empId = 'emp-servicos';

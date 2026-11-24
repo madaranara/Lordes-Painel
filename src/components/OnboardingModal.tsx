@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { createSegmentPreset } from '../data/presets';
+import { SEGMENT_OPTIONS, getSegmentLabel } from '../data/segments';
 import { SegmentKey, TenantDataset } from '../types/finance';
 import { formatBRL, getTodayISO, parseBRLInputToCents } from '../utils/formatters';
 import { parseBankStatement } from '../utils/statementParser';
@@ -314,9 +315,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                     onChange={(e) => setSegmento(e.target.value as SegmentKey)}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                   >
-                    <option value="servicos">Serviços (materiais, mão de obra, combustível)</option>
-                    <option value="comercio">Comércio (mercadorias, aluguel, maquininha)</option>
-                    <option value="alimentacao">Alimentação (insumos, delivery, aplicativos)</option>
+                    {SEGMENT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -650,11 +653,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <div className="font-bold text-slate-900">Financeiro</div>
                   <div>
                     <strong>Segmento:</strong>{' '}
-                    {segmento === 'servicos'
-                      ? 'Serviços'
-                      : segmento === 'comercio'
-                        ? 'Comércio'
-                        : 'Alimentação'}
+                    {getSegmentLabel(segmento)}
                   </div>
                   <div>
                     <strong>Saldo inicial total:</strong>{' '}

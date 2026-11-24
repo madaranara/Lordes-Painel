@@ -10,6 +10,7 @@ import {
   createInitialSaasClients,
   createSegmentPreset,
 } from './src/data/presets.ts';
+import { getSegmentLabel, isSegmentKey } from './src/data/segments.ts';
 import type {
   AccessRole,
   AuthUserSummary,
@@ -512,12 +513,7 @@ export async function createLordesApp(options?: {
       id: `cli-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
       empresaNome: params.empresaNome,
       responsavel: params.creatorName,
-      segmento:
-        params.segmento === 'servicos'
-          ? 'Prestação de Serviços'
-          : params.segmento === 'comercio'
-            ? 'Comércio Local'
-            : 'Alimentação & Delivery',
+      segmento: getSegmentLabel(params.segmento),
       plano: 'Profissional',
       valorMensalCents: 12900,
       status: 'trial_3m',
@@ -557,8 +553,7 @@ export async function createLordesApp(options?: {
     const senha = typeof body.senha === 'string' ? body.senha : '';
     const empresaNome = typeof body.empresaNome === 'string' ? body.empresaNome.trim() : '';
     const segRaw = typeof body.segmento === 'string' ? body.segmento : 'servicos';
-    const segmento: SegmentKey =
-      segRaw === 'comercio' || segRaw === 'alimentacao' ? segRaw : 'servicos';
+    const segmento: SegmentKey = isSegmentKey(segRaw) ? segRaw : 'servicos';
 
     if (
       nome.length < 2 ||
@@ -901,8 +896,7 @@ export async function createLordesApp(options?: {
     const body = req.body as { empresaNome?: unknown; segmento?: unknown };
     const empresaNome = typeof body.empresaNome === 'string' ? body.empresaNome.trim() : '';
     const segRaw = typeof body.segmento === 'string' ? body.segmento : 'servicos';
-    const segmento: SegmentKey =
-      segRaw === 'comercio' || segRaw === 'alimentacao' ? segRaw : 'servicos';
+    const segmento: SegmentKey = isSegmentKey(segRaw) ? segRaw : 'servicos';
 
     if (empresaNome.length < 2) {
       res.status(400).json({ error: 'Informe o nome da nova empresa (mínimo 2 caracteres).' });

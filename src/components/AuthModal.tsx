@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { KeyRound, Lock, ShieldCheck, X } from 'lucide-react';
 import { AuthUserSummary, SegmentKey, TenantDataset } from '../types/finance';
+import { SEGMENT_OPTIONS } from '../data/segments';
 
 interface AuthModalProps {
   onClose: () => void;
@@ -206,9 +207,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     onChange={(e) => setSegmento(e.target.value as SegmentKey)}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                   >
-                    <option value="servicos">Prestação de Serviços</option>
-                    <option value="comercio">Comércio Local</option>
-                    <option value="alimentacao">Alimentação &amp; Delivery</option>
+                    {SEGMENT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

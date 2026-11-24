@@ -7,6 +7,7 @@ import { OnboardingModal, OnboardingWizardResult } from './components/Onboarding
 import { OfflineIndicator } from './components/PWAInstallButton';
 import { SaaSWorkspace, WorkspaceTab } from './components/SaaSWorkspace';
 import { createInitialSaasClients, createSegmentPreset } from './data/presets';
+import { SEGMENT_OPTIONS } from './data/segments';
 import {
   AccessRole,
   AuthUserSummary,
@@ -26,36 +27,29 @@ const STORAGE_KEY = 'lordes_saas_datasets_v1';
 
 type SegmentStore = Record<SegmentKey, TenantDataset>;
 
+function createDefaultSegmentStore(): SegmentStore {
+  return Object.fromEntries(
+    SEGMENT_OPTIONS.map(({ value }) => [value, createSegmentPreset(value)]),
+  ) as SegmentStore;
+}
+
 function loadInitialStore(): SegmentStore {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<SegmentStore>;
-      if (parsed.servicos && parsed.comercio && parsed.alimentacao) {
-        return {
-          servicos: {
-            ...createSegmentPreset('servicos'),
-            ...parsed.servicos,
-          },
-          comercio: {
-            ...createSegmentPreset('comercio'),
-            ...parsed.comercio,
-          },
-          alimentacao: {
-            ...createSegmentPreset('alimentacao'),
-            ...parsed.alimentacao,
-          },
-        };
-      }
+      const defaults = createDefaultSegmentStore();
+      return Object.fromEntries(
+        SEGMENT_OPTIONS.map(({ value }) => [
+          value,
+          parsed[value] ? { ...defaults[value], ...parsed[value] } : defaults[value],
+        ]),
+      ) as SegmentStore;
     }
   } catch {
     // fallback to defaults
   }
-  return {
-    servicos: createSegmentPreset('servicos'),
-    comercio: createSegmentPreset('comercio'),
-    alimentacao: createSegmentPreset('alimentacao'),
-  };
+  return createDefaultSegmentStore();
 }
 
 function nowTimestamp(): string {

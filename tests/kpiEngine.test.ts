@@ -8,6 +8,17 @@ import {
 } from '../src/utils/kpiEngine.ts';
 import { parseBankStatement } from '../src/utils/statementParser.ts';
 
+test('digital segment presets support sites, SaaS and software businesses', () => {
+  for (const segment of ['sites', 'saas', 'software'] as const) {
+    const dataset = createSegmentPreset(segment);
+    assert.equal(dataset.empresa.segmento, segment);
+    assert.ok(dataset.categorias.length >= 5);
+    assert.ok(dataset.produtos.length >= 3);
+    assert.ok(dataset.categorias.some((categoria) => categoria.tipo === 'receita'));
+    assert.ok(dataset.categorias.some((categoria) => categoria.tipo === 'despesa'));
+  }
+});
+
 test('computeDashboardMetrics calculates 8 essential KPIs and Ponto de Equilibrio accurately', () => {
   const dataset = createSegmentPreset('servicos');
   // Substitui lançamentos por conjunto determinístico para validação matemática exata

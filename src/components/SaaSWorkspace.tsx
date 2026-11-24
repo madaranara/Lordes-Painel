@@ -76,6 +76,7 @@ import {
   computeMonthlyDRE,
 } from '../utils/kpiEngine';
 import { getPlanEntitlements } from '../utils/planLimits';
+import { SEGMENT_OPTIONS } from '../data/segments';
 import { CashFlowAreaChart, RevenueExpenseChart } from './Charts';
 import { KpiCard } from './KpiCard';
 import { QuickEntryModal } from './QuickEntryModal';
@@ -617,9 +618,11 @@ async function enviarOrcamentoLordes(dados) {
                 onChange={(e) => onChangeSegment(e.target.value as SegmentKey)}
                 className="w-full px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 text-slate-800"
               >
-                <option value="servicos">Serviços (Gesso &amp; Reformas)</option>
-                <option value="comercio">Comércio (Café &amp; Empório)</option>
-                <option value="alimentacao">Alimentação (Hamburgueria)</option>
+                {SEGMENT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
           )}
@@ -688,9 +691,11 @@ async function enviarOrcamentoLordes(dados) {
                     onChange={(e) => setNewCompanySeg(e.target.value as SegmentKey)}
                     className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded bg-white"
                   >
-                    <option value="servicos">Serviços</option>
-                    <option value="comercio">Comércio</option>
-                    <option value="alimentacao">Alimentação</option>
+                    {SEGMENT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.shortLabel}
+                      </option>
+                    ))}
                   </select>
                   {companyError && <p className="text-[11px] text-rose-700">{companyError}</p>}
                   <button
@@ -830,9 +835,11 @@ async function enviarOrcamentoLordes(dados) {
                   onChange={(e) => onChangeSegment(e.target.value as SegmentKey)}
                   className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-md bg-slate-50"
                 >
-                  <option value="servicos">Serviços (Gesso &amp; Reformas)</option>
-                  <option value="comercio">Comércio (Café &amp; Empório)</option>
-                  <option value="alimentacao">Alimentação (Hamburgueria)</option>
+                  {SEGMENT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               )}
               <PWAInstallButton compact />
