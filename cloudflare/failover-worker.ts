@@ -39,7 +39,13 @@ export default {
 
     try {
       const primary = await forward(request.clone(), env.PRIMARY_ORIGIN, 8_000);
-      if (primary.status < 500) return primary;
+      const contentType = primary.headers.get('content-type') ?? '';
+      // O Bonto pode responder a navegações/API com uma página HTML de
+      // despertar ou de aviso, usando status 200. Para a API isso não é uma
+      // resposta válida: deixa o Render assumir o tráfego de contingência.
+      if (primary.status < 500 && (!pathname.startsWith('/api/') || !contentType.includes('text/html'))) {
+        return primary;
+      }
     } catch {
       // O Bonto pode estar reiniciando ou excedendo o tempo de resposta.
     }
