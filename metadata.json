@@ -1,0 +1,6 @@
+{
+  "name": "LORDES — Site + CRM & Gestor Financeiro",
+  "description": "Plataforma LORDES para venda de pacotes Site + CRM & Gestor Financeiro SaaS para pequenas e médias empresas brasileiras.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
