@@ -5,7 +5,13 @@ import { SEGMENT_OPTIONS } from '../data/segments';
 
 interface AuthModalProps {
   onClose: () => void;
-  onAuthenticated: (token: string, user: AuthUserSummary, dataset: TenantDataset, isNewSignup: boolean) => void;
+  onAuthenticated: (
+    token: string,
+    user: AuthUserSummary,
+    dataset: TenantDataset,
+    isNewSignup: boolean,
+    firebaseIdToken?: string,
+  ) => void;
   onOpenLegal: () => void;
 }
 
@@ -23,9 +29,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [needs2FA, setNeeds2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
   const [aceiteLgpd, setAceiteLgpd] = useState(false);
-  const [forgotStep, setForgotStep] = useState<'email' | 'reset'>('email');
-  const [resetCode, setResetCode] = useState('');
-  const [novaSenha, setNovaSenha] = useState('');
+  const [forgotStep, setForgotStep] = useState<'email' | 'sent'>('email');
   const [infoMsg, setInfoMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -54,7 +58,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           setError(data.error || 'Não foi possível concluir o cadastro.');
           return;
         }
-        onAuthenticated(data.token, data.user, data.dataset, true);
+        onAuthenticated(data.token, data.user, data.dataset, true, data.firebaseIdToken);
       } else if (tab === 'login') {
         const res = await fetch('/api/v1/auth/login', {
           method: 'POST',
@@ -74,7 +78,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           setError(data.error || 'E-mail ou senha inválidos.');
           return;
         }
-        onAuthenticated(data.token, data.user, data.dataset, false);
+        onAuthenticated(data.token, data.user, data.dataset, false, data.firebaseIdToken);
       } else if (forgotStep === 'email') {
         const res = await fetch('/api/v1/auth/forgot-password', {
           method: 'POST',
@@ -86,25 +90,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           setError(data.error || 'Não foi possível solicitar a recuperação.');
           return;
         }
-        setInfoMsg(data.message || 'Se o e-mail estiver cadastrado, enviamos o código.');
-        setForgotStep('reset');
-      } else {
-        const res = await fetch('/api/v1/auth/reset-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, code: resetCode, novaSenha }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error || 'Código inválido ou expirado.');
-          return;
-        }
-        setTab('login');
-        setForgotStep('email');
-        setResetCode('');
-        setNovaSenha('');
-        setSenha('');
-        setInfoMsg(data.message || 'Senha redefinida com sucesso.');
+        setInfoMsg(data.message || 'Se o e-mail estiver cadastrado, você receberá um link de recuperação.');
+        setForgotStep('sent');
       }
     } catch {
       setError('Falha de conexão com o servidor.');
@@ -223,6 +210,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <input
               type="email"
               required
+              disabled={loading || (tab === 'forgot' && forgotStep === 'sent')}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="voce@suaempresa.com.br"
@@ -261,35 +249,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {tab === 'forgot' && forgotStep === 'reset' && (
-            <>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Código recebido (6 dígitos)
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={6}
-                  value={resetCode}
-                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="000000"
-                  className="w-full px-3 py-2 text-sm font-mono-num border border-slate-300 rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Nova senha</label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={novaSenha}
-                  onChange={(e) => setNovaSenha(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                />
-              </div>
-            </>
+          {tab === 'forgot' && forgotStep === 'sent' && (
+            <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              Abra o link enviado pelo Firebase para escolher uma nova senha. Depois, entre novamente no painel.
+            </p>
           )}
 
           {tab === 'login' && needs2FA && (
@@ -343,7 +306,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || (tab === 'forgot' && forgotStep === 'sent')}
             className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-[#1E40AF] hover:bg-[#1E3A8A] disabled:opacity-60 rounded-lg transition-colors cursor-pointer"
           >
             {loading
@@ -352,8 +315,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 ? 'Criar empresa e iniciar onboarding'
                 : tab === 'forgot'
                   ? forgotStep === 'email'
-                    ? 'Enviar código de recuperação'
-                    : 'Redefinir senha'
+                    ? 'Enviar link de recuperação'
+                    : 'Link solicitado'
                   : 'Entrar no painel'}
           </button>
 

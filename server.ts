@@ -24,6 +24,16 @@ import { formatBRL, getTodayISO } from './src/utils/formatters.ts';
 import { applyOverdueTransitions, generateDueRecurrences } from './src/utils/kpiEngine.ts';
 import { getPlanEntitlements } from './src/utils/planLimits.ts';
 import { FirebaseRestStore, readFirebaseConfig } from './server/firebaseRest.ts';
+import {
+  FirebaseAuthRequestError,
+  firebaseAuthAvailable,
+  firebaseLookupIdToken,
+  firebaseResetPassword,
+  firebaseSendPasswordReset,
+  firebaseSendVerificationEmail,
+  firebaseSignIn,
+  firebaseSignUp,
+} from './server/firebaseAuthRest.ts';
 
 dotenv.config();
 
@@ -47,6 +57,7 @@ interface StoredUser {
   totpSecret?: string;
   pendingTotpSecret?: string;
   emailVerified?: boolean;
+  firebaseUid?: string;
   emailVerifyCodeHash?: string;
   emailVerifyExpiresAt?: number;
   resetCodeHash?: string;
@@ -318,6 +329,25 @@ function readEmailConfig() {
   return apiKey && from ? { apiKey, from } : null;
 }
 
+function firebaseAuthFailure(error: unknown): { status: number; message: string } {
+  if (!(error instanceof FirebaseAuthRequestError)) {
+    return { status: 503, message: 'A autenticação está temporariamente indisponível. Tente novamente.' };
+  }
+  if (['EMAIL_NOT_FOUND', 'INVALID_PASSWORD', 'INVALID_LOGIN_CREDENTIALS', 'INVALID_ID_TOKEN', 'TOKEN_EXPIRED', 'USER_DISABLED'].includes(error.code)) {
+    return { status: 401, message: 'E-mail ou senha inválidos.' };
+  }
+  if (error.code === 'EMAIL_EXISTS') {
+    return { status: 409, message: 'Já existe uma conta cadastrada com este e-mail.' };
+  }
+  if (error.code === 'INVALID_EMAIL' || error.code === 'WEAK_PASSWORD') {
+    return { status: 400, message: 'Confira o e-mail e use uma senha com ao menos 6 caracteres.' };
+  }
+  if (error.code === 'TOO_MANY_ATTEMPTS_TRY_LATER') {
+    return { status: 429, message: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' };
+  }
+  return { status: 503, message: 'A autenticação está temporariamente indisponível. Tente novamente.' };
+}
+
 function runTenantMaintenance(dataset: TenantDataset, todayISO = getTodayISO()): boolean {
   let changed = false;
 
@@ -540,7 +570,7 @@ export async function createLordesApp(options?: {
       service: 'lordes-api',
       version: 'v1',
       persistence: firebaseStore ? 'firestore-rest' : 'local-json',
-      emailConfigured: Boolean(readEmailConfig()),
+      emailConfigured: Boolean(firebaseAuthAvailable() || readEmailConfig()),
     });
   });
 
@@ -586,6 +616,29 @@ export async function createLordesApp(options?: {
       return;
     }
 
+    let firebaseAccount: Awaited<ReturnType<typeof firebaseSignUp>> | null = null;
+    if (firebaseAuthAvailable()) {
+      try {
+        firebaseAccount = await firebaseSignUp(email, senha);
+      } catch (error) {
+        if (error instanceof FirebaseAuthRequestError && error.code === 'EMAIL_EXISTS') {
+          try {
+            firebaseAccount = await firebaseSignIn(email, senha);
+          } catch (signInError) {
+            const failure = firebaseAuthFailure(signInError);
+            res.status(failure.status).json({ error: failure.status === 401
+              ? 'Este e-mail já tem uma conta Firebase. Entre com a senha dessa conta ou recupere o acesso.'
+              : failure.message });
+            return;
+          }
+        } else {
+          const failure = firebaseAuthFailure(error);
+          res.status(failure.status).json({ error: failure.message });
+          return;
+        }
+      }
+    }
+
     const cleanDataset = createIsolatedTenantForUser(db, {
       empresaNome,
       segmento,
@@ -594,30 +647,42 @@ export async function createLordesApp(options?: {
     const empresaId = cleanDataset.empresa.id;
     const userId = `usr-${crypto.randomUUID().slice(0, 8)}`;
 
-    const verifyCode = String(crypto.randomInt(100000, 999999));
+    const verifyCode = firebaseAccount ? undefined : String(crypto.randomInt(100000, 999999));
     const newUser: StoredUser = {
       id: userId,
       nome,
       email,
       senhaHash: hashPassword(senha),
+      firebaseUid: firebaseAccount?.localId,
       empresaId,
       papel: 'proprietario',
       memberships: [{ empresaId, papel: 'proprietario' }],
       twoFactorEnabled: false,
-      emailVerified: false,
-      emailVerifyCodeHash: hashOneTimeCode(verifyCode),
-      emailVerifyExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      emailVerified: Boolean(firebaseAccount?.emailVerified),
+      emailVerifyCodeHash: verifyCode ? hashOneTimeCode(verifyCode) : undefined,
+      emailVerifyExpiresAt: verifyCode ? Date.now() + 24 * 60 * 60 * 1000 : undefined,
       isOperator: false,
     };
 
     db.users.push(newUser);
     saveDb(db);
 
-    await sendTransactionalEmail({
-      to: email,
-      subject: 'LORDES — Confirme seu e-mail',
-      text: `Olá ${nome}, seu código de confirmação na LORDES é: ${verifyCode}`,
-    });
+    let verificationEmailSent = false;
+    if (firebaseAccount?.idToken && !firebaseAccount.emailVerified) {
+      try {
+        await firebaseSendVerificationEmail(firebaseAccount.idToken);
+        verificationEmailSent = true;
+      } catch {
+        // A conta continua criada; a pessoa pode pedir um novo link nas configurações.
+      }
+    } else if (verifyCode) {
+      const emailResult = await sendTransactionalEmail({
+        to: email,
+        subject: 'LORDES — Confirme seu e-mail',
+        text: `Olá ${nome}, seu código de confirmação na LORDES é: ${verifyCode}`,
+      });
+      verificationEmailSent = emailResult.delivered;
+    }
 
     const token = signToken({
       userId: newUser.id,
@@ -631,11 +696,13 @@ export async function createLordesApp(options?: {
       token,
       user: sanitizeUser(newUser, db, empresaId, 'proprietario'),
       dataset: cleanDataset,
+      firebaseIdToken: firebaseAccount?.idToken,
+      verificationEmailSent,
     });
   });
 
   // Login com rate limiting e verificação real TOTP (RFC 6238)
-  app.post('/api/v1/auth/login', (req, res) => {
+  app.post('/api/v1/auth/login', async (req, res) => {
     const body = req.body as { email?: unknown; senha?: unknown; totpCode?: unknown };
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
     const senha = typeof body.senha === 'string' ? body.senha : '';
@@ -648,9 +715,29 @@ export async function createLordesApp(options?: {
 
     const db = ensureDb();
     const user = db.users.find((u) => u.email === email);
-    if (!user || !verifyPassword(senha, user.senhaHash)) {
+    if (!user) {
       res.status(401).json({ error: 'E-mail ou senha inválidos.' });
       return;
+    }
+
+    let firebaseAccount: Awaited<ReturnType<typeof firebaseSignIn>> | null = null;
+    let localPasswordValid = false;
+    let firebaseAccountCreated = false;
+
+    if (user.firebaseUid) {
+      try {
+        firebaseAccount = await firebaseSignIn(email, senha);
+      } catch (error) {
+        const failure = firebaseAuthFailure(error);
+        res.status(failure.status).json({ error: failure.message });
+        return;
+      }
+    } else {
+      localPasswordValid = verifyPassword(senha, user.senhaHash);
+      if (!localPasswordValid) {
+        res.status(401).json({ error: 'E-mail ou senha inválidos.' });
+        return;
+      }
     }
 
     if (user.twoFactorEnabled) {
@@ -670,6 +757,44 @@ export async function createLordesApp(options?: {
       } else if (!/^\d{6}$/.test(code)) {
         res.status(401).json({ error: 'Código 2FA inválido.' });
         return;
+      }
+    }
+
+    if (!user.firebaseUid && firebaseAuthAvailable()) {
+      try {
+        firebaseAccount = await firebaseSignUp(email, senha);
+        firebaseAccountCreated = true;
+      } catch (error) {
+        if (error instanceof FirebaseAuthRequestError && error.code === 'EMAIL_EXISTS') {
+          try {
+            firebaseAccount = await firebaseSignIn(email, senha);
+          } catch (signInError) {
+            const failure = firebaseAuthFailure(signInError);
+            res.status(failure.status).json({ error: failure.message });
+            return;
+          }
+        } else if (error instanceof FirebaseAuthRequestError && error.code === 'NETWORK_ERROR') {
+          // Mantém o login antigo durante uma indisponibilidade temporária do Auth.
+        } else {
+          const failure = firebaseAuthFailure(error);
+          res.status(failure.status).json({ error: failure.message });
+          return;
+        }
+      }
+    }
+
+    if (firebaseAccount) {
+      user.firebaseUid = firebaseAccount.localId;
+      user.emailVerified = Boolean(user.emailVerified || firebaseAccount.emailVerified);
+      // Mantém recursos locais, como desativar o 2FA, sincronizados após reset no Firebase.
+      user.senhaHash = hashPassword(senha);
+      saveDb(db);
+      if (firebaseAccountCreated && firebaseAccount.idToken && !firebaseAccount.emailVerified) {
+        try {
+          await firebaseSendVerificationEmail(firebaseAccount.idToken);
+        } catch {
+          // O usuário pode solicitar outro link na área de segurança.
+        }
       }
     }
 
@@ -700,6 +825,7 @@ export async function createLordesApp(options?: {
       token,
       user: sanitizeUser(user, db, activeMembership.empresaId, activeMembership.papel),
       dataset,
+      firebaseIdToken: firebaseAccount?.idToken,
     });
   });
 
@@ -772,7 +898,50 @@ export async function createLordesApp(options?: {
       return;
     }
     if (user.emailVerified) {
-      res.json({ ok: true, alreadyVerified: true, emailSent: false });
+      res.json({
+        ok: true,
+        alreadyVerified: true,
+        emailSent: false,
+        user: sanitizeUser(user, db, req.auth!.empresaId, req.auth!.papel),
+      });
+      return;
+    }
+    if (firebaseAuthAvailable()) {
+      const idToken = typeof req.body?.firebaseIdToken === 'string' ? req.body.firebaseIdToken : '';
+      if (!user.firebaseUid || !idToken) {
+        res.status(401).json({ error: 'Entre novamente no painel para solicitar o link de confirmação.' });
+        return;
+      }
+      try {
+        const identity = await firebaseLookupIdToken(idToken);
+        if (!identity || identity.localId !== user.firebaseUid || identity.email?.toLowerCase() !== user.email) {
+          res.status(401).json({ error: 'Sessão de autenticação inválida. Entre novamente no painel.' });
+          return;
+        }
+        if (identity.emailVerified) {
+          user.emailVerified = true;
+          saveDb(db);
+          res.json({
+            ok: true,
+            alreadyVerified: true,
+            emailSent: false,
+            user: sanitizeUser(user, db, req.auth!.empresaId, req.auth!.papel),
+          });
+          return;
+        }
+        await firebaseSendVerificationEmail(idToken);
+        res.json({
+          ok: true,
+          emailSent: true,
+          verificationMode: 'link',
+          message: 'Enviamos um link de confirmação. Abra-o e depois volte para atualizar o status.',
+        });
+      } catch (error) {
+        const failure = firebaseAuthFailure(error);
+        res.status(failure.status).json({ error: failure.status === 401
+          ? 'Sua sessão expirou. Entre novamente no painel e peça um novo link.'
+          : 'Não foi possível enviar o link agora. Tente novamente mais tarde.' });
+      }
       return;
     }
     if (!readEmailConfig()) {
@@ -797,7 +966,47 @@ export async function createLordesApp(options?: {
     res.json({ ok: true, emailSent: true, message: 'Código enviado para o seu e-mail cadastrado.' });
   });
 
-  app.post('/api/v1/auth/verify-email', requireAuth, (req: AuthedRequest, res) => {
+  app.post('/api/v1/auth/verify-email', requireAuth, async (req: AuthedRequest, res) => {
+    const idToken = typeof req.body?.firebaseIdToken === 'string' ? req.body.firebaseIdToken : '';
+    if (firebaseAuthAvailable() && idToken) {
+      const db = ensureDb();
+      const user = db.users.find((u) => u.id === req.auth!.userId);
+      if (!user) {
+        res.status(404).json({ error: 'Usuário não encontrado.' });
+        return;
+      }
+      try {
+        const identity = await firebaseLookupIdToken(idToken);
+        if (!identity || identity.localId !== user.firebaseUid || identity.email?.toLowerCase() !== user.email) {
+          res.status(401).json({ error: 'Sessão de autenticação inválida. Entre novamente no painel.' });
+          return;
+        }
+        if (!identity.emailVerified) {
+          res.status(400).json({ error: 'O Firebase ainda não confirmou o link. Abra o e-mail e tente novamente.' });
+          return;
+        }
+        user.emailVerified = true;
+        user.emailVerifyCodeHash = undefined;
+        user.emailVerifyExpiresAt = undefined;
+        saveDb(db);
+        res.json({
+          ok: true,
+          user: sanitizeUser(user, db, req.auth!.empresaId, req.auth!.papel),
+        });
+      } catch (error) {
+        const failure = firebaseAuthFailure(error);
+        res.status(failure.status).json({ error: failure.status === 401
+          ? 'Sua sessão expirou. Entre novamente e atualize o status.'
+          : 'Não foi possível consultar a confirmação agora.' });
+      }
+      return;
+    }
+
+    if (firebaseAuthAvailable() && !req.body?.code) {
+      res.status(401).json({ error: 'Entre novamente no painel para atualizar a confirmação do e-mail.' });
+      return;
+    }
+
     const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
     const db = ensureDb();
     const user = db.users.find((u) => u.id === req.auth!.userId);
@@ -831,6 +1040,21 @@ export async function createLordesApp(options?: {
       res.status(429).json({ error: 'Muitas solicitações. Aguarde alguns minutos.' });
       return;
     }
+    if (firebaseAuthAvailable()) {
+      try {
+        await firebaseSendPasswordReset(email);
+      } catch (error) {
+        if (!(error instanceof FirebaseAuthRequestError) || !['EMAIL_NOT_FOUND', 'INVALID_EMAIL'].includes(error.code)) {
+          res.status(503).json({ error: 'A recuperação por e-mail está temporariamente indisponível. Tente novamente mais tarde.' });
+          return;
+        }
+      }
+      res.json({
+        ok: true,
+        message: 'Se este e-mail estiver cadastrado, o Firebase enviará um link para redefinir a senha.',
+      });
+      return;
+    }
     if (!readEmailConfig()) {
       res.status(503).json({ error: 'A recuperação por e-mail está temporariamente indisponível.' });
       return;
@@ -858,9 +1082,33 @@ export async function createLordesApp(options?: {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
     const novaSenha = typeof req.body?.novaSenha === 'string' ? req.body.novaSenha : '';
+    const oobCode = typeof req.body?.oobCode === 'string' ? req.body.oobCode.trim() : '';
 
     if (!checkRateLimit(`reset:${req.ip || 'ip'}:${email}`, 8)) {
       res.status(429).json({ error: 'Muitas tentativas. Aguarde alguns minutos.' });
+      return;
+    }
+    if (oobCode && firebaseAuthAvailable()) {
+      if (novaSenha.length < 6) {
+        res.status(400).json({ error: 'A nova senha precisa ter ao menos 6 caracteres.' });
+        return;
+      }
+      void firebaseResetPassword(oobCode, novaSenha).then((result) => {
+        const db = ensureDb();
+        const resetUser = db.users.find((u) => u.email === (result.email || email));
+        if (resetUser) {
+          resetUser.senhaHash = hashPassword(novaSenha);
+          resetUser.resetCodeHash = undefined;
+          resetUser.resetExpiresAt = undefined;
+          saveDb(db);
+        }
+        res.json({ ok: true, message: 'Senha redefinida. Entre no painel com a nova senha.' });
+      }).catch((error: unknown) => {
+        const failure = error instanceof FirebaseAuthRequestError && ['EXPIRED_OOB_CODE', 'INVALID_OOB_CODE'].includes(error.code)
+          ? { status: 400, message: 'O link de recuperação é inválido ou expirou. Solicite outro.' }
+          : { status: 503, message: 'Não foi possível redefinir a senha. Solicite um novo link.' };
+        res.status(failure.status).json({ error: failure.message });
+      });
       return;
     }
     if (novaSenha.length < 6 || !/^\d{6}$/.test(code)) {

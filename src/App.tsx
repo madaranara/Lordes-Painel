@@ -78,6 +78,7 @@ export default function App() {
 
   // Sessão autenticada mantida exclusivamente em memória (sem localStorage)
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [firebaseIdToken, setFirebaseIdToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUserSummary | null>(null);
   const [authTenantDataset, setAuthTenantDataset] = useState<TenantDataset | null>(null);
   const [teamMembers, setTeamMembers] = useState<AuthUserSummary[]>([]);
@@ -234,9 +235,11 @@ export default function App() {
     user: AuthUserSummary,
     dataset: TenantDataset,
     isNewSignup: boolean,
+    currentFirebaseIdToken?: string,
   ) => {
     setUrlSiteParam(null);
     setAuthToken(token);
+    setFirebaseIdToken(currentFirebaseIdToken || null);
     setAuthUser(user);
     setAuthTenantDataset(dataset);
     setSegment(dataset.empresa.segmento);
@@ -256,6 +259,7 @@ export default function App() {
 
   const handleLogout = () => {
     setAuthToken(null);
+    setFirebaseIdToken(null);
     setAuthUser(null);
     setAuthTenantDataset(null);
     setTeamMembers([]);
@@ -823,17 +827,22 @@ export default function App() {
     try {
       const res = await fetch('/api/v1/auth/request-email-verification', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ firebaseIdToken }),
       });
       const data = await res.json();
       if (!res.ok) return { emailSent: false, message: '', error: data.error || 'Erro ao solicitar código.' };
+      if (data.user) setAuthUser(data.user);
       return { emailSent: Boolean(data.emailSent), message: data.message || 'Solicitação enviada.' };
     } catch {
       return { emailSent: false, message: '', error: 'Falha de conexão com o servidor.' };
     }
   };
 
-  const handleVerifyEmail = async (code: string): Promise<string | null> => {
+  const handleVerifyEmail = async (): Promise<string | null> => {
     if (!authToken) return 'Sessão não autenticada.';
     try {
       const res = await fetch('/api/v1/auth/verify-email', {
@@ -842,7 +851,7 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ firebaseIdToken }),
       });
       const data = await res.json();
       if (!res.ok) return data.error || 'Código inválido.';

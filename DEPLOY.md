@@ -6,7 +6,7 @@ O projeto roda em uma única instância Node.js 24. O Docker Compose publica o s
 
 1. Aponte um hostname público para a VM. Libere as portas TCP 80 e 443 para o Caddy e mantenha a porta 3000 do painel na rede interna do Compose.
 2. Copie `.env.example` para `.env`. Preencha `LORDES_HOST` com o hostname. Gere `SESSION_SECRET` com `openssl rand -hex 32`, guarde o valor e mantenha-o estável entre reinicializações.
-3. Para verificação de e-mail e recuperação de senha, configure `RESEND_API_KEY` e `RESEND_FROM_EMAIL` com um remetente de domínio verificado no Resend.
+3. Para usar o Firestore, configure as credenciais abaixo. Confirmação e recuperação por e-mail usam o remetente padrão do Firebase Authentication, sem Resend.
 4. Execute `docker compose up -d --build`. Confira `docker compose ps` e abra `https://SEU_HOST/api/v1/health`.
 
 ## Firebase Spark (sem cartão)
@@ -38,6 +38,18 @@ carregados para o processo. Sem as três variáveis, nada muda: o modo JSON cont
 O endpoint `/api/v1/health` informa `persistence: "firestore-rest"` quando a conexão foi
 configurada. O plano Spark não libera Cloud Functions; por isso a API continua rodando no
 Node/Bonto ou em outro host gratuito, enquanto o Firestore serve como persistência.
+
+## Firebase Authentication (Spark, sem cartão)
+
+No Firebase Console, habilite somente **Authentication → Método de login → E-mail/senha**.
+O app Web `LORDES Painel` está registrado no projeto `lordes-painel`, e o idioma padrão dos
+e-mails está em português do Brasil. O remetente padrão do Firebase envia links de
+confirmação e redefinição de senha; não é preciso configurar SMTP ou Resend.
+
+A chave Web em `src/firebaseConfig.ts` é pública e serve apenas para identificar o projeto
+nas APIs do Firebase. Os usuários antigos são associados ao Firebase Auth no primeiro
+login válido; seus dados e empresas continuam no Firestore. A senha redefinida pelo link do
+Firebase é sincronizada com o hash legado no próximo login.
 
 Valide cadastro, login, geração do link da loja e captação de um orçamento com uma conta de teste. Reinicie o serviço `painel` e valide novamente o acesso à mesma empresa. Teste a entrega de e-mail com o domínio configurado.
 

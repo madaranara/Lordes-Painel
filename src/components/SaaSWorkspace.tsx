@@ -165,7 +165,7 @@ interface SaaSWorkspaceProps {
   onEnable2FA: (code: string) => Promise<string | null>;
   onDisable2FA: (senha: string) => Promise<string | null>;
   onRequestEmailVerification: () => Promise<{ emailSent: boolean; message: string; error?: string }>;
-  onVerifyEmail: (code: string) => Promise<string | null>;
+  onVerifyEmail: () => Promise<string | null>;
   onUpdateSaasClientStatus: (id: string, status: SaasClientRecord['status']) => void;
   onResetSegment: () => void;
   onDeleteAccount: () => void;
@@ -327,7 +327,6 @@ export const SaaSWorkspace: React.FC<SaaSWorkspaceProps> = ({
   const [disable2FAPass, setDisable2FAPass] = useState('');
   const [securityMsg, setSecurityMsg] = useState('');
   const [securityErr, setSecurityErr] = useState('');
-  const [emailVerifyCode, setEmailVerifyCode] = useState('');
   const [logoError, setLogoError] = useState('');
 
   const effectiveSiteSlug = dataset.empresa.siteSlug || `demo-${segment}`;
@@ -3297,41 +3296,29 @@ async function enviarOrcamentoLordes(dados) {
                           }}
                           className="text-xs font-semibold text-[#1E40AF] hover:underline cursor-pointer"
                         >
-                          Enviar código de confirmação
+                          Enviar link de confirmação
                         </button>
                       )}
                     </div>
                     {!authUser.emailVerified && (
-                      <form
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          setSecurityErr('');
-                          setSecurityMsg('');
-                          const err = await onVerifyEmail(emailVerifyCode);
-                          if (err) setSecurityErr(err);
-                          else {
-                            setEmailVerifyCode('');
-                            setSecurityMsg('E-mail verificado com sucesso.');
-                          }
-                        }}
-                        className="flex gap-2"
-                      >
-                        <input
-                          type="text"
-                          maxLength={6}
-                          required
-                          value={emailVerifyCode}
-                          onChange={(e) => setEmailVerifyCode(e.target.value.replace(/\D/g, ''))}
-                          placeholder="Código de 6 dígitos"
-                          className="flex-1 px-3 py-1.5 text-xs font-mono-num border border-slate-300 rounded-md bg-white"
-                        />
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] text-slate-600">
+                          Abra o link enviado ao seu e-mail e volte para atualizar o status.
+                        </p>
                         <button
-                          type="submit"
+                          type="button"
+                          onClick={async () => {
+                            setSecurityErr('');
+                            setSecurityMsg('');
+                            const err = await onVerifyEmail();
+                            if (err) setSecurityErr(err);
+                            else setSecurityMsg('E-mail verificado com sucesso.');
+                          }}
                           className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 rounded-md cursor-pointer"
                         >
-                          Confirmar
+                          Já confirmei meu e-mail
                         </button>
-                      </form>
+                      </div>
                     )}
                   </div>
 
