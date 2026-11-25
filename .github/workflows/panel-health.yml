@@ -1,8 +1,11 @@
 name: Verificar disponibilidade do painel
 
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/panel-health.yml']
   schedule:
-    - cron: '17,47 * * * *'
+    - cron: '17 3,15 * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -17,7 +20,8 @@ jobs:
         run: |
           set -euo pipefail
           url='https://lordes-painel-failover.lordes-painel.workers.dev'
-          curl --fail --silent --show-error --max-time 20 "$url/" | grep -F '<div id="root"></div>'
+          page=$(curl --fail --silent --show-error --max-time 20 "$url/")
+          grep -F '<div id="root"></div>' <<< "$page"
           for attempt in 1 2; do
             if curl --fail --silent --show-error --max-time 75 -H 'Accept: application/json' "$url/api/v1/health" |
               jq -e '.ok == true and .service == "lordes-api" and .persistence == "firestore-rest"'; then
