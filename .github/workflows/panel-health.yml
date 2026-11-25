@@ -1,0 +1,29 @@
+name: Verificar disponibilidade do painel
+
+on:
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Conferir a página e a API pelo endereço principal
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://lordes-painel-failover.lordes-painel.workers.dev'
+          curl --fail --silent --show-error --max-time 20 "$url/" | grep -F '<div id="root"></div>'
+          for attempt in 1 2; do
+            if curl --fail --silent --show-error --max-time 75 -H 'Accept: application/json' "$url/api/v1/health" |
+              jq -e '.ok == true and .service == "lordes-api" and .persistence == "firestore-rest"'; then
+              exit 0
+            fi
+            if [ "$attempt" = 1 ]; then sleep 10; fi
+          done
+          echo '::error::A API do painel não respondeu com o estado esperado do Firestore.'
+          exit 1
