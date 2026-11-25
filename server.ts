@@ -287,20 +287,20 @@ async function sendTransactionalEmail(params: {
   subject: string;
   text: string;
 }): Promise<{ delivered: boolean }> {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) {
+  const config = readEmailConfig();
+  if (!config) {
     return { delivered: false };
   }
   try {
-    const from = process.env.RESEND_FROM_EMAIL?.trim() || 'LORDES <onboarding@resend.dev>';
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${config.apiKey}`,
       },
+      signal: AbortSignal.timeout(8_000),
       body: JSON.stringify({
-        from,
+        from: config.from,
         to: [params.to],
         subject: params.subject,
         text: params.text,
@@ -310,6 +310,12 @@ async function sendTransactionalEmail(params: {
   } catch {
     return { delivered: false };
   }
+}
+
+function readEmailConfig() {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.RESEND_FROM_EMAIL?.trim();
+  return apiKey && from ? { apiKey, from } : null;
 }
 
 function runTenantMaintenance(dataset: TenantDataset, todayISO = getTodayISO()): boolean {
@@ -534,6 +540,7 @@ export async function createLordesApp(options?: {
       service: 'lordes-api',
       version: 'v1',
       persistence: firebaseStore ? 'firestore-rest' : 'local-json',
+      emailConfigured: Boolean(readEmailConfig()),
     });
   });
 
@@ -768,6 +775,10 @@ export async function createLordesApp(options?: {
       res.json({ ok: true, alreadyVerified: true, emailSent: false });
       return;
     }
+    if (!readEmailConfig()) {
+      res.status(503).json({ error: 'A confirmação por e-mail está temporariamente indisponível.' });
+      return;
+    }
     const verifyCode = String(crypto.randomInt(100000, 999999));
     user.emailVerifyCodeHash = hashOneTimeCode(verifyCode);
     user.emailVerifyExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
@@ -779,13 +790,11 @@ export async function createLordesApp(options?: {
       text: `Seu código de confirmação na LORDES é: ${verifyCode}`,
     });
 
-    res.json({
-      ok: true,
-      emailSent: delivered,
-      message: delivered
-        ? 'Código enviado para o seu e-mail cadastrado.'
-        : 'Envio de e-mail requer RESEND_API_KEY configurada no servidor.',
-    });
+    if (!delivered) {
+      res.status(503).json({ error: 'Não foi possível enviar o código agora. Tente novamente mais tarde.' });
+      return;
+    }
+    res.json({ ok: true, emailSent: true, message: 'Código enviado para o seu e-mail cadastrado.' });
   });
 
   app.post('/api/v1/auth/verify-email', requireAuth, (req: AuthedRequest, res) => {
@@ -822,27 +831,26 @@ export async function createLordesApp(options?: {
       res.status(429).json({ error: 'Muitas solicitações. Aguarde alguns minutos.' });
       return;
     }
+    if (!readEmailConfig()) {
+      res.status(503).json({ error: 'A recuperação por e-mail está temporariamente indisponível.' });
+      return;
+    }
     const db = ensureDb();
     const user = db.users.find((u) => u.email === email);
-    let emailSent = false;
     if (user) {
       const resetCode = String(crypto.randomInt(100000, 999999));
       user.resetCodeHash = hashOneTimeCode(resetCode);
       user.resetExpiresAt = Date.now() + 15 * 60 * 1000;
       saveDb(db);
-      const sent = await sendTransactionalEmail({
+      await sendTransactionalEmail({
         to: user.email,
         subject: 'LORDES — Recuperação de senha',
         text: `Use o código ${resetCode} para redefinir sua senha. Válido por 15 minutos.`,
       });
-      emailSent = sent.delivered;
     }
     res.json({
       ok: true,
-      emailSent,
-      message: emailSent
-        ? 'Se este e-mail estiver cadastrado, enviamos o código de recuperação.'
-        : 'Solicitação registrada. O disparo automático requer RESEND_API_KEY configurada no servidor.',
+      message: 'Se este e-mail estiver cadastrado, você receberá o código de recuperação.',
     });
   });
 

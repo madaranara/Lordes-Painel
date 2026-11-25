@@ -30,6 +30,16 @@ async function forward(request: Request, origin: string, timeoutMs: number): Pro
   }
 }
 
+function apiResponse(response: Response, backend: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set('x-lordes-backend', backend);
+  return new Response(response.body, { status: response.status, headers });
+}
+
+function isApiResponse(response: Response): boolean {
+  return (response.headers.get('content-type') ?? '').includes('application/json');
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const pathname = new URL(request.url).pathname;
@@ -37,29 +47,29 @@ export default {
       return fetch(new Request(upstreamUrl(env.STATIC_ORIGIN, new URL(request.url)), request));
     }
 
+    const isRead = request.method === 'GET' || request.method === 'HEAD';
     try {
       const primary = await forward(request.clone(), env.PRIMARY_ORIGIN, 8_000);
-      const contentType = primary.headers.get('content-type') ?? '';
-      // O Bonto pode responder a navegações/API com uma página HTML de
-      // despertar ou de aviso, usando status 200. Para a API isso não é uma
-      // resposta válida: deixa o Render assumir o tráfego de contingência.
-      if (primary.status < 500 && (!pathname.startsWith('/api/') || !contentType.includes('text/html'))) {
-        return primary;
+      if (isApiResponse(primary) && (primary.status < 500 || !isRead)) {
+        return apiResponse(primary, 'bonto-primary');
       }
+      console.warn({ event: 'bonto_fallback', status: primary.status });
     } catch {
-      // O Bonto pode estar reiniciando ou excedendo o tempo de resposta.
+      console.warn({ event: 'bonto_fallback', reason: 'unreachable' });
     }
 
     try {
       const secondary = await forward(request.clone(), env.SECONDARY_ORIGIN, 55_000);
-      const headers = new Headers(secondary.headers);
-      headers.set('x-lordes-backend', 'render-standby');
-      return new Response(secondary.body, { status: secondary.status, headers });
+      if (isApiResponse(secondary) && secondary.status < 500) return apiResponse(secondary, 'render-standby');
+      console.error({ event: 'api_unavailable', status: secondary.status });
+      if (isApiResponse(secondary)) return apiResponse(secondary, 'render-standby');
     } catch {
-      return new Response(JSON.stringify({ ok: false, error: 'Serviço temporariamente indisponível.' }), {
-        status: 503,
-        headers: { 'content-type': 'application/json; charset=utf-8', 'retry-after': '30' },
-      });
+      console.error({ event: 'api_unavailable', reason: 'unreachable' });
     }
+
+    return Response.json({ ok: false, error: 'Painel temporariamente indisponível. Tente de novo em alguns instantes.' }, {
+      status: 503,
+      headers: { 'cache-control': 'no-store', 'retry-after': '30' },
+    });
   },
 };

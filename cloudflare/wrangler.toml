@@ -2,6 +2,10 @@ name = "lordes-painel-failover"
 main = "failover-worker.ts"
 compatibility_date = "2026-11-24"
 
+[observability.logs]
+enabled = true
+invocation_logs = false
+
 [vars]
 STATIC_ORIGIN = "https://lordes-painel.web.app"
 PRIMARY_ORIGIN = "https://lordes-painel.bonto.page"
